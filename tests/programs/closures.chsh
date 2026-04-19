@@ -1,0 +1,21 @@
+# cherash:strict
+
+def counter():
+    n: int = 0
+    def inc() -> int:
+        nonlocal n
+        n += 1
+        return n
+    return inc
+
+c = counter()
+print(c(), c(), c())  # 1 2 3
+
+def make_adder(x: int):
+    def add(y: int) -> int:
+        return x + y
+    return add
+
+add5 = make_adder(5)
+print(add5(3))   # 8
+print(add5(10))  # 15

@@ -1,0 +1,9 @@
+/target
+
+# Claude AI context files
+*CLAUDE*.*
+.claude
+*CLAUDE
+CLAUDE*
+
+MVP.MD

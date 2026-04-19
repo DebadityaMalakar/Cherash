@@ -1,0 +1,16 @@
+[package]
+name = "cherash"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "cherash"
+path = "src/main.rs"
+
+[lib]
+name = "cherash"
+path = "src/lib.rs"
+
+[dependencies]
+
+[dev-dependencies]

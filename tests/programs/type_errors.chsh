@@ -1,0 +1,23 @@
+# cherash:strict
+# This file demonstrates strict type checking.
+# Uncomment lines to see type errors.
+
+def add(x: int, y: int) -> int:
+    return x + y
+
+print(add(1, 2))    # 3
+print(add(10, 20))  # 30
+
+def greet(name: str) -> str:
+    return "Hello, " + name
+
+print(greet("World"))  # Hello, World
+
+# Type-safe accumulator
+def sum_list(items: list) -> int:
+    total: int = 0
+    for item in items:
+        total += item
+    return total
+
+print(sum_list([1, 2, 3, 4, 5]))  # 15
