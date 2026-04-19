@@ -160,6 +160,16 @@ def greet(name: str, prefix: str = "Hello") -> str:
     return prefix + ", " + name
 ```
 
+### Keyword-only parameters
+
+Parameters after `*` can only be supplied as keyword arguments:
+
+```python
+def create(name: str, *, verbose: bool = False) -> None:
+    if verbose:
+        print(f"Creating {name}")
+```
+
 ### *args and **kwargs
 
 ```python
@@ -169,6 +179,35 @@ def total(*nums: int) -> int:
 def config(**opts):
     for k, v in opts.items():
         print(k, "=", v)
+
+# Both:
+def mixed(a, b, *args, **kwargs):
+    pass
+
+mixed(1, 2, 3, 4, x=5, y=6)  # a=1, b=2, args=[3,4], kwargs={x:5, y:6}
+```
+
+### Keyword arguments in calls
+
+Arguments can always be passed by name:
+
+```python
+def connect(host: str, port: int = 80, ssl: bool = False) -> None:
+    pass
+
+connect("example.com", ssl=True, port=443)
+```
+
+### Starred unpacking in assignment
+
+```python
+first, *rest = [1, 2, 3, 4, 5]
+# first=1, rest=[2, 3, 4, 5]
+
+a, *middle, z = [1, 2, 3, 4, 5]
+# a=1, middle=[2, 3, 4], z=5
+
+head, *_ = range(10)   # only the first element
 ```
 
 ### Lambda
@@ -389,13 +428,32 @@ if (n := len(data)) > 10:
 ```python
 import math
 import sys
+import json
+import threading
+import time
+import random
 
 from math import sqrt, pi
 from os.path import join, exists
 
 import math as m
 from sys import argv as args
+
+from os import *   # wildcard import
 ```
+
+### Available modules
+
+| Module | Description |
+|--------|-------------|
+| `math` | Mathematical functions and constants |
+| `io` | File I/O (also via global `open()`) |
+| `json` | JSON encode/decode |
+| `os` | Operating system interface |
+| `sys` | Interpreter state and process control |
+| `time` | Time functions |
+| `random` | Pseudo-random number generation |
+| `threading` | Real OS threads and synchronization |
 
 ---
 
@@ -403,7 +461,7 @@ from sys import argv as args
 
 | Function | Description |
 |----------|-------------|
-| `print(*args)` | Print to stdout |
+| `print(*args, sep=' ', end='\n')` | Print to stdout |
 | `len(obj)` | Length of sequence |
 | `range(stop)` / `range(start, stop, step)` | Integer range |
 | `int(x)` / `float(x)` / `str(x)` / `bool(x)` | Type conversion |
@@ -412,19 +470,30 @@ from sys import argv as args
 | `abs(x)` | Absolute value |
 | `max(...)` / `min(...)` | Maximum / minimum |
 | `sum(iterable)` | Sum of elements |
-| `sorted(iterable)` | Sorted copy |
-| `reversed(seq)` | Reversed copy |
-| `enumerate(iterable)` | Index + value pairs |
+| `sorted(iterable, key=None, reverse=False)` | Sorted copy |
+| `reversed(seq)` | Reversed iterator |
+| `enumerate(iterable, start=0)` | Index + value pairs |
 | `zip(*iterables)` | Zip multiple iterables |
+| `map(fn, iterable)` | Apply fn to each element |
+| `filter(fn, iterable)` | Keep elements where fn is True |
 | `list(iterable)` / `tuple(...)` / `set(...)` / `dict(...)` | Collection constructors |
 | `ord(c)` / `chr(n)` | Character ↔ code point |
 | `hex(n)` / `oct(n)` / `bin(n)` | Number base conversions |
-| `round(x, n)` | Round to n decimal places |
+| `round(x, n=0)` | Round to n decimal places |
 | `divmod(a, b)` | `(a // b, a % b)` |
 | `pow(x, y)` | `x ** y` |
-| `input(prompt)` | Read line from stdin |
+| `input(prompt='')` | Read line from stdin |
 | `repr(obj)` | Developer-readable string |
 | `hash(obj)` | Hash value |
 | `callable(obj)` | Is object callable |
-| `open(path, mode)` | Open a file |
+| `id(obj)` | Object identity (GC handle address) |
+| `open(path, mode='r')` | Open a file → TextIOWrapper |
 | `iter(obj)` / `next(it)` | Iterator protocol |
+| `hasattr(obj, name)` / `getattr(obj, name)` / `setattr(obj, name, val)` | Attribute access |
+| `vars(obj)` | Object's `__dict__` |
+| `dir(obj)` | List attribute names |
+| `issubclass(cls, parent)` | Subclass check |
+| `all(iterable)` / `any(iterable)` | Boolean aggregation |
+| `format(val, spec)` | Format string |
+| `bytes(...)` / `bytearray(...)` | Bytes construction |
+| `memoryview(...)` | Memory view |

@@ -1,16 +1,16 @@
 # Contributing to Cherash
 
-This document describes how the Cherash codebase is developed — phase structure, testing methodology, commit discipline, and coding standards.
+This document describes how the Cherash codebase is developed — testing methodology, commit discipline, coding standards, and how to add new features.
 
 ---
 
 ## Development Philosophy
 
-1. **Never skip phases.** Phase N depends on Phase N-1 being complete and tested.
-2. **Tests first.** Write the test that validates the exit criterion before writing the implementation.
-3. **One sub-task at a time.** Implement, test, commit. Then move to the next sub-task.
-4. **Loud failures over silent bugs.** If something is wrong, produce a detailed error with location. Never swallow errors silently.
-5. **No premature optimization.** Tree-walking interpreter is the correct target for the MVP. Bytecode VM and JIT are post-Phase-8.
+1. **Tests first.** Write the test that validates the exit criterion before writing the implementation.
+2. **One sub-task at a time.** Implement, test, commit. Then move to the next sub-task.
+3. **Loud failures over silent bugs.** Produce a detailed error with location. Never swallow errors silently.
+4. **No premature optimization.** Tree-walking interpreter is the correct target for the MVP. Bytecode VM and JIT are post-Phase-8.
+5. **Never skip phases.** Phase N depends on Phase N-1 being complete and tested.
 
 ---
 
@@ -24,13 +24,15 @@ cherash/
 │   ├── lexer/              Phase 1
 │   ├── parser/             Phase 2
 │   ├── typechecker/        Phase 4
-│   ├── interpreter/        Phase 3 (evaluator + environment)
-│   ├── runtime/            Phases 7–8 (value, gc, threading)
-│   └── stdlib/             Phase 8 (math, io, sys, threading, ...)
+│   ├── interpreter/        Phase 3 (evaluator, methods, environment)
+│   ├── runtime/            Phases 7–8 (value, gc)
+│   └── stdlib/             Phase 8 (math, io, json, sys, os, time, random, threading)
 ├── tests/
 │   ├── phase1_lexer.rs
 │   ├── phase3_evaluator.rs
-│   └── ...
+│   ├── phase7_threading.rs
+│   ├── phase8_math.rs
+│   └── programs/           Integration test programs (.py, .chsh)
 ├── DOCS/
 │   ├── LANGUAGE_GUIDE.MD
 │   ├── ARCHITECTURE.MD
@@ -41,6 +43,7 @@ cherash/
 │   └── CONTRIBUTING.MD
 ├── Cargo.toml
 ├── MVP.MD                  full language specification
+├── ROADMAP.MD              feature roadmap and sprint backlog
 └── CLAUDE.MD               AI implementation instructions
 ```
 
@@ -50,33 +53,36 @@ cherash/
 
 | Phase | Name | Status |
 |-------|------|--------|
-| 1 | Lexer | Complete |
-| 2 | Parser & AST | Complete |
-| 3 | Core Evaluator | Complete |
-| 4 | Type Checker | Complete (partial — return types TODO) |
-| 5 | Collections & OOP | Complete |
-| 6 | Exception Machinery | Complete |
-| 7 | Threading | Stub — needs real `std::thread` spawning |
-| 8 | GC + Stdlib + Raylib | Not started |
+| 1 | Lexer | ✅ Complete |
+| 2 | Parser & AST | ✅ Complete |
+| 3 | Core Evaluator | ✅ Complete |
+| 4 | Type Checker | ✅ Complete |
+| 5 | Collections & OOP | ✅ Complete |
+| 6 | Exception Machinery | ✅ Complete |
+| 7 | Threading | ✅ Complete |
+| 8 | GC | ✅ Complete |
+| 8 | Stdlib | ✅ Complete (math, io, json, os, sys, time, random, threading) |
+| 8 | Raylib | 🔲 Planned |
 
 ---
 
 ## Building
 
 ```bash
-cargo build          # debug build
+cargo build            # debug build
 cargo build --release  # optimized build
-cargo test           # run all tests
-cargo test phase1    # run only phase1 tests
+cargo test             # run all tests
+cargo test phase1      # run only phase1 tests
+cargo clippy           # lint
 ```
 
-No external dependencies are required for Phases 1–7. Phase 8 will add `raylib-sys` for the Raylib bindings.
+No external dependencies are required for Phases 1–8 stdlib. Raylib will require `raylib-sys` (C library).
 
 ---
 
 ## Writing Tests
 
-Tests live in `tests/` as integration tests that call into the library via `run_source()`.
+Tests live in `tests/` as integration tests calling into the library via `run_source()`.
 
 ```rust
 use cherash::run_source;
@@ -96,20 +102,37 @@ assert fib(10) == 55
 ### Conventions
 
 - Use `r#"..."#` raw string literals to avoid escaping.
-- Use `assert` statements inside the Cherash program — they produce clear error messages when wrong.
-- Use `run_source(src, true)` for strict mode tests.
-- Test error cases with `run_source(...).expect_err(...)` or match on `CherashError`.
+- Use `assert` inside the Cherash program — clear failure messages.
+- `run_source(src, true)` for strict mode (`.chsh`) tests.
+- `run_source(src, false)` for compatibility mode (`.py`) tests.
 
-### Error case pattern
+### Testing type errors
 
 ```rust
-fn run_expect_err(src: &str, expected_type: &str) {
+fn run_expect_type_error(src: &str) {
     match run_source(src, true) {
         Err(cherash::CherashError::TypeCheck(_)) => {}
+        Ok(()) => panic!("expected TypeError but program succeeded"),
+        Err(e) => panic!("unexpected error: {}", e),
+    }
+}
+
+#[test]
+fn test_int_str_mismatch() {
+    run_expect_type_error(r#"x: int = "hello""#);
+}
+```
+
+### Testing runtime errors
+
+```rust
+fn run_expect_runtime_error(src: &str, expected_type: &str) {
+    match run_source(src, false) {
         Err(cherash::CherashError::Runtime(e)) => {
-            assert_eq!(e.type_name, expected_type);
+            assert_eq!(e.type_name, expected_type,
+                "expected '{}' but got '{}: {}'", expected_type, e.type_name, e.message);
         }
-        Ok(()) => panic!("expected error '{}' but program succeeded", expected_type),
+        Ok(()) => panic!("expected '{}' but program succeeded", expected_type),
         Err(e) => panic!("unexpected error: {}", e),
     }
 }
@@ -117,35 +140,101 @@ fn run_expect_err(src: &str, expected_type: &str) {
 
 ---
 
-## Implementing a New Phase
+## Adding a Builtin Function
 
-Follow this process for each phase:
+Built-in functions live in `src/interpreter/evaluator.rs` in `load_builtins()`:
 
-### 1. Create sub-tasks
+```rust
+fn load_builtins(env: &EnvRef) {
+    let builtins: &[(&str, BuiltinFnPtr)] = &[
+        ("mybuiltin", builtin_mybuiltin),
+        // ...
+    ];
+    for (name, f) in builtins {
+        Env::set_local(env, name, Value::BuiltinFunction(Arc::new(BuiltinFn { name, func: *f })));
+    }
+}
 
-Break the phase exit criteria from `CLAUDE.MD` into tasks of 15–30 minutes each. Document them (in a comment, a GitHub issue, or a local task list).
-
-### 2. Write the test first
-
-Before writing any implementation code, write the integration test that validates the exit criterion. The test should fail initially.
-
-### 3. Implement the sub-task
-
-Write the minimum code to make the test pass. Do not add features beyond what the test requires.
-
-### 4. Verify
-
-```bash
-cargo test phase<N>
+fn builtin_mybuiltin(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    let n = match args.first() {
+        Some(Value::Int(n)) => *n,
+        _ => return Err(RuntimeError::type_error("mybuiltin() requires an int")),
+    };
+    Ok(Value::Int(n * 2))
+}
 ```
 
-All tests for the current phase must pass. Tests for earlier phases must continue to pass.
+---
 
-### 5. Commit
+## Adding a Collection Method
 
+Collection methods live in `src/interpreter/methods.rs`. They receive `self` as `args[0]` via the `BoundBuiltin` dispatch:
+
+```rust
+pub fn list_mymethod(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    let self_val = args.first().ok_or_else(|| RuntimeError::type_error("missing self"))?;
+    let list = match self_val {
+        Value::List(l) => l,
+        _ => return Err(RuntimeError::type_error("expected list")),
+    };
+    // ...
+}
 ```
-git add src/ tests/
-git commit -m "phase<N>: <what was implemented>"
+
+Register it in `list_method()` in `evaluator.rs`:
+
+```rust
+"mymethod" => ok(Value::BoundBuiltin {
+    receiver: Box::new(obj.clone()),
+    name: "mymethod",
+    func: crate::interpreter::methods::list_mymethod,
+}),
+```
+
+---
+
+## Adding a Stdlib Module
+
+1. Create `src/stdlib/mymodule.rs`:
+
+```rust
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use crate::runtime::value::*;
+use crate::interpreter::evaluator::RuntimeError;
+
+pub fn make_mymodule_module() -> Value {
+    let mut attrs = HashMap::new();
+    attrs.insert("myfunction".into(), Value::BuiltinFunction(Arc::new(BuiltinFn {
+        name: "myfunction",
+        func: |args| {
+            // implementation
+            Ok(Value::None)
+        },
+    })));
+    Value::Module(Arc::new(Mutex::new(ModuleObj { name: "mymodule".into(), attrs })))
+}
+```
+
+2. Export from `src/stdlib/mod.rs`:
+```rust
+pub mod mymodule;
+```
+
+3. Register in `import_module()` in `evaluator.rs`:
+```rust
+"mymodule" => ok(crate::stdlib::mymodule::make_mymodule_module()),
+```
+
+4. Write tests in `tests/`:
+```rust
+#[test]
+fn test_mymodule() {
+    run_source(r#"
+import mymodule
+assert mymodule.myfunction() is None
+"#, false).unwrap();
+}
 ```
 
 ---
@@ -155,100 +244,57 @@ git commit -m "phase<N>: <what was implemented>"
 ### Rust style
 
 - Follow standard Rust idioms (`cargo clippy` should be clean).
-- Use `Arc<Mutex<T>>` for all shared mutable heap values — never `unsafe` for sharing.
+- Use `GcHandle<T>` (via `alloc_list`, `alloc_dict`, `alloc_set`, `alloc_instance`) for all mutable heap values — never raw `Arc<Mutex<T>>` for `List`/`Dict`/`Set`/`Instance`.
+- Never use `unsafe` for sharing mutable state across threads.
 - Prefer `match` with exhaustive patterns over `if let` chains.
 - Use `?` for error propagation in `Result`-returning functions.
 - Use `Signal` for control flow (return, break, continue, raise) — not panics.
 
 ### Error messages
 
-Every error produced by the interpreter must include:
+Every error must include:
 - The error type name (`TypeError`, `ValueError`, etc.)
-- A clear, specific message describing what went wrong
+- A specific message describing what went wrong
 - Source location (line and column) when available
 
-Avoid: "operation failed", "invalid value", "error occurred".
-Prefer: "expected int, got str in assignment at 5:3", "list index 10 out of range for list of length 5".
+Avoid: `"operation failed"`, `"invalid value"`.
+Prefer: `"expected int, got str at 5:3"`, `"list index 10 out of range (len=5)"`.
 
-### Adding builtins
+### No silent fallbacks
 
-Built-in functions live in `src/interpreter/evaluator.rs`. Each has the signature:
-
-```rust
-fn builtin_name(args: Vec<Value>) -> Result<Value, RuntimeError>
-```
-
-Register it in `load_builtins()`:
-
-```rust
-("mybuiltin", builtin_mybuiltin),
-```
-
-For functions that are logically part of a type (list methods, str methods), add them to the `list_method` / `str_method` dispatch tables in the evaluator.
-
-### Adding a stdlib module
-
-1. Create `src/stdlib/mymodule.rs`.
-2. Implement `pub fn make_mymodule_module() -> Value`.
-3. Export from `src/stdlib/mod.rs`: `pub mod mymodule;`
-4. Register in `import_module()` in the evaluator:
-   ```rust
-   "mymodule" => ok(crate::stdlib::mymodule::make_mymodule_module()),
-   ```
+If a builtin receives wrong argument types, raise `RuntimeError::type_error(...)`. Never silently return `Value::None` from a function that should raise.
 
 ---
 
-## Phase 7 Implementation Notes
+## Raylib Integration Plan
 
-### What needs to be done
-
-`threading.Thread.start()` currently calls the target function synchronously. It needs to spawn a real OS thread:
-
-```rust
-fn thread_start(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    // 1. Extract target function and args from Instance fields
-    // 2. Clone them (cheap — Arc inside)
-    // 3. Spawn std::thread::spawn with a new Evaluator
-    // 4. Store the JoinHandle somewhere the instance can join() later
-}
-```
-
-The `JoinHandle` can't live in a `Value` directly (it's not `Clone`). Options:
-- Store it as a raw pointer in `Instance.fields` as `Value::Int` (unsafe)
-- Use a `Arc<Mutex<Option<JoinHandle<()>>>>` field stored as a custom value type
-- Use a global thread registry indexed by thread ID
-
-### Value::Send requirement
-
-`Value` must be `Send + Sync` to cross thread boundaries. Currently it is, because:
-- `Arc<Mutex<T>>` is `Send + Sync` when `T: Send`
-- Primitive variants (`Int`, `Float`, etc.) are `Copy` / `Send`
-- `Function` carries `EnvRef` which is `Arc<Mutex<Env>>` — `Send`
-
-Verify with `cargo test` after adding `std::thread::spawn` — the compiler will reject non-`Send` types at the spawn site.
-
----
-
-## Phase 8 Implementation Notes
-
-### GC integration points
-
-1. Every `Arc<Mutex<T>>` write that stores a `Value` needs a write barrier call.
-2. The GC thread needs a way to enumerate all live `Arc` instances (the root set).
-3. The evaluator's `EnvRef` chain is the primary root — each `Env` holds a scope.
-
-### Raylib bindings
+When adding Raylib bindings (`src/stdlib/raylib.rs`):
 
 Add to `Cargo.toml`:
-
 ```toml
 [dependencies]
-raylib = "5"    # or raylib-sys for raw bindings
+raylib = "5"
 ```
 
-Implement `src/stdlib/raylib.rs` following the same pattern as other stdlib modules: a `make_raylib_module()` function returning a `Value::Module` with `BuiltinFn` entries for each Raylib function.
+Map Raylib types to `Value`:
+- `Color` → `Value::Tuple` of 4 ints (r, g, b, a)
+- `Vector2` → `Value::Tuple` of 2 floats (x, y)
+- `Rectangle` → `Value::Tuple` of 4 floats (x, y, w, h)
+- Window handle → managed via a thread-local singleton (Raylib is not thread-safe)
+- Textures/sounds → `Value::Instance` with an opaque ID into a static registry
 
-Map Raylib types:
-- `Color` → `Value::Tuple(Arc<vec![r, g, b, a]>)` (4-element int tuple)
-- `Vector2` → `Value::Tuple(Arc<vec![x, y]>)` (2-element float tuple)
-- Window handles → opaque `Value::Int` (pointer cast)
+The game loop pattern:
+```python
+import raylib
+
+raylib.init_window(800, 600, "My Game")
+raylib.set_target_fps(60)
+
+while not raylib.window_should_close():
+    raylib.begin_drawing()
+    raylib.clear_background((20, 20, 20, 255))
+    raylib.draw_text("Hello Cherash!", 10, 10, 20, (255, 255, 255, 255))
+    raylib.end_drawing()
+
+raylib.close_window()
+```

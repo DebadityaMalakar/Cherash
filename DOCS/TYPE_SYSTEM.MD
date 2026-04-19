@@ -192,29 +192,29 @@ def parse(val: Union[str, int]) -> float:
 
 ## Function Signatures
 
-In strict mode, parameter types and return types are checked:
+In strict mode, parameter types and return types are checked.
+
+Return types are verified at each `return` statement against the declared `-> T` annotation:
 
 ```python
 def add(a: int, b: int) -> int:
-    return a + b
+    return a + b        # OK — int matches int
 
-add(1, 2)       # OK
-add(1, "two")   # TypeError: expected int, got str
-```
-
-Return type checking is enforced at the `return` statement:
-
-```python
 def get_name() -> str:
-    return 42   # TypeError: expected str, got int
+    return 42           # TypeError: return type mismatch: expected str, got int
+
+def log(msg: str) -> None:
+    print(msg)          # implicit None return — OK
 ```
 
-Functions without a return annotation are treated as `-> Any`:
+Functions without a return annotation are treated as `-> Any` — no return checking:
 
 ```python
 def untyped(x):
-    return x   # no annotation — no checking
+    return x   # no annotation — no checking performed
 ```
+
+Call-site argument type checking (verifying that `add("a", "b")` fails) is a planned future feature — currently only annotated assignments and return types are checked, not call arguments.
 
 ---
 
@@ -258,9 +258,17 @@ Inheritance is recognized for `isinstance` checks but not yet for structural typ
 
 ## Generic Collections (Runtime)
 
-At runtime, Cherash does not enforce element types in collections — a `list[int]` can technically hold any `Value`. The type checker enforces element types at assignment of the collection literal, but not at individual `.append()` calls yet.
+At runtime, Cherash does not enforce element types in collections — a `list[int]` can technically hold any `Value` (the GC manages the heap, not the types). The type checker enforces element types at collection literal assignment and infers element types for for-loop variables:
 
-This will be tightened in a future phase via instrumented collection types.
+```python
+# strict mode (.chsh)
+nums: list[int] = [1, 2, 3]   # OK
+for n in nums:
+    # n is inferred as int
+    pass
+```
+
+Individual `.append()` calls are not yet checked at the call site — this is a known limitation.
 
 ---
 
